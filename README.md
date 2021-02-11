@@ -1,6 +1,6 @@
 # Airflow2Docker
 
-Airflow2Docker is a repository usefull to install airflow 2.0 with docker.
+Airflow2Docker is a repository usefull to install airflow 2.0 with docker. (Without SWARM)
 See also: https://github.com/trowdan/airflow2-docker
 
 

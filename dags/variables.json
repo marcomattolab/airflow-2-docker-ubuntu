@@ -1,0 +1,5 @@
+{
+    "ETL_NAME_ES": "api.citybik.es",
+    "ETL_SAVE_DATA_ES": "True",
+    "ETL_URL_ES": "https://api.citybik.es/v2/networks/bilbon-bizi"
+}

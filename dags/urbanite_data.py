@@ -12,43 +12,48 @@ from datetime import datetime, timedelta
 config = ConfigParser()
 config.read("pg_creds.cfg")
 
+# Enble Saving data on the PG DBMS
+SAVE_DATA = True #TODO Create Variable
+ETL_NAME = "api.citybik.es" #TODO Create Variable
+
 #############################################################################
-# Extract / Transform
+# Extract
 #############################################################################
 
 def fetchDataToLocal():
     """
-    we use the python requests library to fetch the nyc in json format, then
-    use the pandas library to easily convert from json to a csv saved in the
+    we use the python requests library to fetch the data in json format, then
+    use the pandas library to easily convert from json to a txt saved in the
     local data directory
     """
-    
+    # See http://api.citybik.es/v2/
+	# See https://api.citybik.es/v2/networks/velobike-moscow
     # fetching the request
     url = "https://api.citybik.es/v2/networks/bilbon-bizi"
     response = requests.get(url)
 
-    # convert the response to a pandas dataframe, then save as csv to the data
+    # convert the response to a pandas dataframe, then save as file to the data
     # folder in our project directory
     df = pd.DataFrame(json.loads(response.content))
     # df = df.set_index("date_of_interest")
 
     # for integrity reasons, let's attach the current date to the filename
-    # df.to_csv("data/nyccovid_{}.csv".format(date.today().strftime("%Y%m%d")))
     df.to_json("urbanite_data_{}.json".format(date.today().strftime("%Y%m%d")))
 
 
 #############################################################################
-# Load
+# Transform / Load 
 #############################################################################
 
 def sqlLoad():
     """
     we make the connection to postgres using the psycopg2 library, create
-    the schema to hold our covid data, and insert from the local csv file
+    the schema to hold our covid data, and insert from the local txt file
     """
     
     # attempt the connection to postgres
     try:
+        #TODO USE VARIABLES
         #dbconnect = pg.connect(
         #    database=config.get("postgres", "DATABASE"),
         #    user=config.get("postgres", "USERNAME"),
@@ -65,29 +70,34 @@ def sqlLoad():
         print(error)
     
     # create the table if it does not already exist
-    cursor = dbconnect.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS urbanite_data (
-            date DATE,
-            case_count INT,
-            hospitalized_count INT,
-            death_count INT,
-            PRIMARY KEY (date)
-        );
-        
-        TRUNCATE TABLE urbanite_data;
-    """
-    )
-    dbconnect.commit()
-    
-	# Retrieve JSON => https://www.programiz.com/python-programming/json
+    if SAVE_DATA:
+        cursor = dbconnect.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS urbanite_data_perc (
+                etlname VARCHAR(1000),
+				etltimestamp TIMESTAMP without time zone,
+                id VARCHAR(1000),
+				timestamp VARCHAR(1000),
+                name VARCHAR(1000),
+                latitude VARCHAR(1000),
+                longitude VARCHAR(1000),
+				slots INT,
+				empty_slots INT,
+                free_bikes INT,
+				number INT,
+                free_bikes_percentage numeric,
+                PRIMARY KEY (etlname, etltimestamp, id)
+            );
+            
+            TRUNCATE TABLE urbanite_data_perc;
+        """
+        )
+        dbconnect.commit()
+    curTimestamp = datetime.now()
     with open("urbanite_data_{}.json".format(date.today().strftime("%Y%m%d"))) as f:
 	    data = json.load(f)
 	    print(data)
-		# print the keys and values
-		#for key in data:
-		#    value = data[key]
-		#    print("The key and value are ({}) = ({})".format(key, value))
+
 
 	    stationsArray = data["network"]["stations"]
 	    for i in range(len(stationsArray)):
@@ -103,23 +113,33 @@ def sqlLoad():
 	        uid = stationsArray[i]['extra']['uid']
 	        number = stationsArray[i]['extra']['number']
 	        slots = stationsArray[i]['extra']['slots']
-	        print("The free_bikes and id are ({}) = ({})".format(free_bikes, id))
-
-		# TODO Escape
-	    #cursor.execute("""
-        #        INSERT INTO urbanite_data
-        #        VALUES ('{}')
-        #        """.format(data)
-	    #)
-    #dbconnect.commit()
+	        
+			# This is a transformation in Percentage
+	        # free_bikes_percentage = stationsArray[i]['free_bikes'] / stationsArray[i]['extra']['slots']
+	        free_bikes_percentage = stationsArray[i]['free_bikes'] / stationsArray[i]['extra']['slots'] if (free_bikes < slots) else 1
+			
+	        print("id: {} free_bikes: {}".format(id, free_bikes))
+			
+	        if SAVE_DATA:
+	            # print("INSERT INTO urbanite_data_perc VALUES ('{}', '{}', '{}', '{}', '{}','{}', '{}', '{}', '{}', '{}' , '{}', '{}')".format(ETL_NAME, curTimestamp, id, timestamp, name, latitude, longitude, slots, empty_slots, free_bikes, number, free_bikes_percentage))
+	            cursor.execute("""
+	            INSERT INTO urbanite_data_perc
+	            VALUES ('{}', '{}', '{}', '{}','{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}')
+	            """.format(ETL_NAME, curTimestamp, id, timestamp, name, latitude, longitude, slots, empty_slots, free_bikes, number, free_bikes_percentage)				
+	            )
+	    if SAVE_DATA :
+	        dbconnect.commit()
 	
 
-default_args = { "owner": "airflow", "start_date": datetime.today() - timedelta(days=1)}
+default_args = { 
+    "owner": "airflow", 
+    "start_date": datetime.today() - timedelta(days=1)
+}
 
 with DAG(
 	"urbanite_data",
 	default_args=default_args,
-	schedule_interval = "0 1 * * *",
+	schedule_interval = "*/15 * * * *",
 	) as dag:
 
 	fetchDataToLocal = PythonOperator(
@@ -133,5 +153,3 @@ with DAG(
 		)
 
 	fetchDataToLocal >> sqlLoad
-
-	
